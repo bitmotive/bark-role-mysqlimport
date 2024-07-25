@@ -1,0 +1,155 @@
+---
+# ROLE: MYSQLIMPORT
+#
+# DESCRIPTION:
+# This role will import a MYSQL database file generated from mysqldump
+
+
+###############################################################################
+################### VARIABLE INITIALIZATION & TASK SETUP ######################
+###############################################################################
+
+
+# MYSQLIMPORT_DATABASE_NAME
+# The new MySQL database to be created. Will drop existing and replace if exists.
+- name: MYSQLIMPORT_DATABASE_NAME set fact from env if possible
+  set_fact:
+    MYSQLIMPORT_DATABASE_NAME: "{{ lookup('env', 'MYSQLIMPORT_DATABASE_NAME') | default('') | trim }}"
+  when: lookup('env', 'MYSQLIMPORT_DATABASE_NAME') | default('', true) | trim != ''
+- name: MYSQLIMPORT_DATABASE_NAME prompt user input if unset
+  pause:
+    prompt: "SET MYSQLIMPORT_DATABASE_NAME"
+    echo: yes
+  register: input
+  when: MYSQLIMPORT_DATABASE_NAME is not defined
+- name: Set MYSQLIMPORT_DATABASE_NAME fact from user input
+  set_fact:
+    MYSQLIMPORT_DATABASE_NAME: "{{ input.user_input | default('') | trim }}"
+  when: MYSQLIMPORT_DATABASE_NAME is not defined
+
+# MYSQLIMPORT_DATABASE_USERNAME
+# The MySQL username to be created for accessing the new database
+- name: MYSQLIMPORT_DATABASE_USERNAME set fact from env if possible
+  set_fact:
+    MYSQLIMPORT_DATABASE_USERNAME: "{{ lookup('env', 'MYSQLIMPORT_DATABASE_USERNAME') | default('') | trim }}"
+  when: lookup('env', 'MYSQLIMPORT_DATABASE_USERNAME') | default('', true) | trim != ''
+- name: MYSQLIMPORT_DATABASE_USERNAME prompt user input if unset
+  pause:
+    prompt: "SET MYSQLIMPORT_DATABASE_USERNAME"
+    echo: yes
+  register: input
+  when: MYSQLIMPORT_DATABASE_USERNAME is not defined
+- name: Set MYSQLIMPORT_DATABASE_USERNAME fact from user input
+  set_fact:
+    MYSQLIMPORT_DATABASE_USERNAME: "{{ input.user_input | default('') | trim }}"
+  when: MYSQLIMPORT_DATABASE_USERNAME is not defined
+
+# MYSQLIMPORT_DATABASE_PASSWORD
+# The MySQL password for the new user
+- name: MYSQLIMPORT_DATABASE_PASSWORD set fact from env if possible
+  set_fact:
+    MYSQLIMPORT_DATABASE_PASSWORD: "{{ lookup('env', 'MYSQLIMPORT_DATABASE_PASSWORD') | default('') | trim }}"
+  when: lookup('env', 'MYSQLIMPORT_DATABASE_PASSWORD') | default('', true) | trim != ''
+- name: MYSQLIMPORT_DATABASE_PASSWORD prompt user input if unset
+  pause:
+    prompt: "SET MYSQLIMPORT_DATABASE_PASSWORD"
+    echo: yes
+  register: input
+  when: MYSQLIMPORT_DATABASE_PASSWORD is not defined
+- name: Set MYSQLIMPORT_DATABASE_PASSWORD fact from user input
+  set_fact:
+    MYSQLIMPORT_DATABASE_PASSWORD: "{{ input.user_input | default('') | trim }}"
+  when: MYSQLIMPORT_DATABASE_PASSWORD is not defined
+
+# MYSQLIMPORT_DATABASE_ROOT_PASSWORD
+# The root password for the MySQL installation for configuring the new database
+- name: MYSQLIMPORT_DATABASE_ROOT_PASSWORD set fact from env if possible
+  set_fact:
+    MYSQLIMPORT_DATABASE_ROOT_PASSWORD: "{{ lookup('env', 'MYSQLIMPORT_DATABASE_ROOT_PASSWORD') | default('') | trim }}"
+  when: lookup('env', 'MYSQLIMPORT_DATABASE_ROOT_PASSWORD') | default('', true) | trim != ''
+- name: MYSQLIMPORT_DATABASE_ROOT_PASSWORD prompt user input if unset
+  pause:
+    prompt: "SET MYSQLIMPORT_DATABASE_ROOT_PASSWORD"
+    echo: yes
+  register: input
+  when: MYSQLIMPORT_DATABASE_ROOT_PASSWORD is not defined
+- name: Set MYSQLIMPORT_DATABASE_ROOT_PASSWORD fact from user input
+  set_fact:
+    MYSQLIMPORT_DATABASE_ROOT_PASSWORD: "{{ input.user_input | default('') | trim }}"
+  when: MYSQLIMPORT_DATABASE_ROOT_PASSWORD is not defined
+
+# MYSQLIMPORT_DATABASE_FILEPATH
+# The filepath on the local system where a mysqldump file can be found to import
+- name: MYSQLIMPORT_DATABASE_FILEPATH set fact from env if possible
+  set_fact:
+    MYSQLIMPORT_DATABASE_FILEPATH: "{{ lookup('env', 'MYSQLIMPORT_DATABASE_FILEPATH') | default('') | trim }}"
+  when: lookup('env', 'MYSQLIMPORT_DATABASE_FILEPATH') | default('', true) | trim != ''
+- name: MYSQLIMPORT_DATABASE_FILEPATH prompt user input if unset
+  pause:
+    prompt: "SET MYSQLIMPORT_DATABASE_FILEPATH"
+    echo: yes
+  register: input
+  when: MYSQLIMPORT_DATABASE_FILEPATH is not defined
+- name: Set MYSQLIMPORT_DATABASE_FILEPATH fact from user input
+  set_fact:
+    MYSQLIMPORT_DATABASE_FILEPATH: "{{ input.user_input | default('') | trim }}"
+  when: MYSQLIMPORT_DATABASE_FILEPATH is not defined
+
+
+###############################################################################
+############################ ROLE IMPLEMENTATION ##############################
+###############################################################################
+
+
+# Step 1: Create MySQL Database
+
+- name: Drop the "{{ MYSQLIMPORT_DATABASE_NAME }}" database if it exists
+  mysql_db:
+    name: "{{ MYSQLIMPORT_DATABASE_NAME }}"
+    state: absent
+    login_user: root
+    login_password: "{{ MYSQLIMPORT_DATABASE_ROOT_PASSWORD }}"
+  become: yes
+
+- name: Create {{ MYSQLIMPORT_DATABASE_NAME }} MySQL database
+  mysql_db:
+    name: "{{ MYSQLIMPORT_DATABASE_NAME }}"
+    state: present
+    login_user: root
+    login_password: "{{ MYSQLIMPORT_DATABASE_ROOT_PASSWORD }}"
+  become: yes
+
+# Step 2: Create MySQL user account with full access to database
+
+- name: Create user with all database privileges on db
+  mysql_user:
+    name: "{{ MYSQLIMPORT_DATABASE_USERNAME }}"
+    password: "{{ MYSQLIMPORT_DATABASE_PASSWORD }}"  # You should keep this in a secret or vault.
+    priv: "{{ MYSQLIMPORT_DATABASE_NAME }}.*:ALL" 
+    host: "%"
+    login_user: root
+    login_password: "{{ MYSQLIMPORT_DATABASE_ROOT_PASSWORD }}"
+    state: present
+  become: yes
+
+- name: Copy database dump file to server
+  copy:
+    src: "{{ MYSQLIMPORT_DATABASE_FILEPATH }}"
+    dest: /tmp/mysql_dump_{{ MYSQLIMPORT_DATABASE_NAME }}.sql
+    mode: '0600'
+
+- name: Import the database dump into "{{ MYSQLIMPORT_DATABASE_NAME }}"
+  mysql_db:
+    name: "{{ MYSQLIMPORT_DATABASE_NAME }}"
+    state: import
+    target: "/tmp/mysql_dump_{{ MYSQLIMPORT_DATABASE_NAME }}.sql"  # Path to your .sql file
+    login_user: root
+    login_password: "{{ MYSQLIMPORT_DATABASE_ROOT_PASSWORD }}"
+  become: yes
+
+# Step 3: Delete temporary files
+- name: Delete /tmp/mysql_dump.sql file
+  file:
+    path: /tmp/mysql_dump.sql
+    state: absent
+  become: yes
